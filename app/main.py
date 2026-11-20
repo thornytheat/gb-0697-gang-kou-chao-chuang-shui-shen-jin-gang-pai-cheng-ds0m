@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from app.errors import BusinessError, object_payload
-from app.pipeline import run, sample_text
+from app.pipeline import run, sample_text, berth_text
 from app import store
 from app.exporter import evidence_csv
 from app.timeops import display_full
@@ -27,14 +27,14 @@ def home(request:Request): return page(request,1)
 def page(request:Request,module:int):
     if module not in range(1,8): raise BusinessError("MODULE","模块不存在",404)
     ident=request.query_params.get("run_id")
-    item=store.get(ident) if ident else store.save(sample_text(),run(sample_text()))
+    item=store.get(ident) if ident else store.plan(berth_text())
     return templates.TemplateResponse(request=request,name="workbench.html",context={"title":'港口潮窗水深与进港排程',"modules":MODULES,"active":module,"run":item,"report":item["result"]["reports"][module-1]})
 @app.post("/api/run")
 def calculate(payload:object=Body(default=None)):
     payload=object_payload(payload)
-    text=payload.get("text",sample_text())
+    text=payload.get("text",berth_text())
     if not isinstance(text,str): raise BusinessError("TEXT","输入须为文本")
-    return store.save(text,run(text))
+    return store.plan(text)
 @app.get("/api/runs")
 def list_runs(): return store.history()
 @app.get("/api/runs/{ident}")
@@ -49,4 +49,5 @@ def review(payload:object=Body(...)):
 def export(ident:str):
     return Response(evidence_csv(store.get(ident)),media_type="text/csv",headers={"Content-Disposition":"attachment; filename=evidence.csv"})
 @app.get("/api/sample")
-def sample(): return {"text":sample_text()}
+def sample(legacy:int=0):
+    return {"text":sample_text() if legacy else berth_text()}

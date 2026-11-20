@@ -15,4 +15,6 @@ def apply(ctx):
     blocks=[(r["a"],r["b"]) for r in ctx["effective"] if r["kind"]=="block"];out=[]
     for w in ctx["tide_windows"]:
         for a,b in subtract((w["start_s"],w["end_s"]),blocks):out.append(dict(w,start_s=a,end_s=b))
-    ctx["channel_windows"]=out;return report(out,可用窗口=len(out),占用=len(blocks))
+    ctx["channel_windows"]=out
+    ctx["blocks"]=blocks
+    return report(out,可用窗口=len(out),占用=len(blocks))

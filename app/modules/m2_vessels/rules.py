@@ -4,9 +4,16 @@ from app.errors import BusinessError
 from app.timeops import instant
 from decimal import Decimal
 
+KINDS={"tide","ship","pilot","block","leg"}
 def depth(value,unit):
     if unit not in {"m","cm"}:raise BusinessError("UNIT","水深单位无效")
     return number(value)/(100 if unit=="cm" else 1)
+
+def leg_geometry(r):
+    length=number(r["length_m"])
+    limit=number(r["limit_kn"])
+    if length<=0 or limit<=0:raise BusinessError("LEG","航道段长度与限速须为正")
+    return length,limit
 
 def apply(ctx):
     rows=[]
@@ -14,11 +21,13 @@ def apply(ctx):
         try:
             x=dict(r);x["a"]=instant(r["start"]);x["b"]=instant(r["end"]) if r["end"] else x["a"]
             x["version_value"]=int(r["version"])
-            if r["kind"] not in {"tide","ship","pilot","block"}:raise BusinessError("KIND","记录类型无效")
+            if r["kind"] not in KINDS:raise BusinessError("KIND","记录类型无效")
             if r["kind"]!="tide" and x["b"]<=x["a"]:raise BusinessError("INTERVAL","结束须晚于开始")
             x["depth"]=depth(r["value"],r["unit"])
             x["duration"]=number(r["aux"])*60 if r["kind"]=="ship" else Decimal(0)
             if r["kind"]=="ship" and (x["depth"]<=0 or x["duration"]<=0):raise BusinessError("VESSEL","船舶条件无效")
+            if r["kind"]=="leg":
+                x["length_m"],x["limit_kn"]=leg_geometry(r)
             rows.append(x)
         except (BusinessError,ValueError) as e:quarantine(ctx,r,getattr(e,"code","VERSION"))
     latest={}
@@ -40,4 +49,5 @@ def apply(ctx):
     effective=[r for key,r in latest.items() if key not in removed]
     ctx["tide_conflict_times"]=conflict_times
     ctx["normalized"]=rows;ctx["effective"]=effective
-    return report(ctx["effective"],船舶=sum(r["kind"]=="ship" for r in effective),有效版本=len(effective))
+    return report(ctx["effective"],船舶=sum(r["kind"]=="ship" for r in effective),有效版本=len(effective),
+                  航道段=sum(r["kind"]=="leg" for r in effective))

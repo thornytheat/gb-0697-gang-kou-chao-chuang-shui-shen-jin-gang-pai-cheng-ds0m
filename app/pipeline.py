@@ -11,8 +11,13 @@ from app.modules.m7_changes.rules import apply as stage7
 def sample_text():
     return (Path(__file__).parent.parent/"sample_data"/"instrument.csv").read_text(encoding="utf-8-sig")
 
-def run(text):
-    ctx={"text":text,"quarantine":[],"reports":[]}
+
+def berth_text():
+    """工作台默认样例：含外/内航道分段、限速与测深版本。"""
+    return (Path(__file__).parent.parent/"sample_data"/"berth.csv").read_text(encoding="utf-8-sig")
+
+def run(text, occupancy=()):
+    ctx={"text":text,"quarantine":[],"reports":[],"occupancy":list(occupancy)}
     ctx["reports"].append(stage1(ctx))
     ctx["reports"].append(stage2(ctx))
     ctx["reports"].append(stage3(ctx))
@@ -21,5 +26,7 @@ def run(text):
     ctx["reports"].append(stage6(ctx))
     ctx["reports"].append(stage7(ctx))
     ctx.pop("text",None)
+    ctx.pop("tide_series",None)
     ctx["reasons"]=reason_counts(ctx)
+    ctx.setdefault("plan_meta",{"depth_basis":[],"occupied":[]})
     return plain(ctx)

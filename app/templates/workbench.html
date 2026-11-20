@@ -1,1 +1,61 @@
-{% extends 'base.html' %}{% block body %}<div class="kpis"><div class="kpi"><small>潮位观测</small><b>{{run.result.effective|selectattr('kind','equalto','tide')|list|length}}</b><span>站次</span></div><div class="kpi"><small>船舶申请</small><b>{{run.result.assigned|length}}</b><span>艘</span></div><div class="kpi"><small>有效潮窗</small><b>{{run.result.tide_windows|length}}</b><span>段</span></div><div class="kpi"><small>隔离记录</small><b>{{run.result.quarantine|length}}</b><span>条</span></div><div class="kpi"><small>排程状态</small><b class="verdict">{{'待处理' if run.result.blocked else '可复核'}}</b></div></div><div class="grid"><section class="panel timeline"><div class="panel-head"><h2>航道时间轴</h2><span id="time-scale">UTC</span></div><div class="tide-graph" id="tide-graph"></div><div class="gantt">{% for ship in run.result.final %}<div class="vessel"><strong>{{ship.id}}</strong><div class="track"><i data-start="{{ship.start_s}}" data-end="{{ship.end_s}}"></i></div><span>{{ship.start}}</span><em class="{{'ok' if ship.status=='SCHEDULED' else 'bad'}}">{{'已安排' if ship.status=='SCHEDULED' else '无安全窗'}}</em></div>{% endfor %}</div></section><section class="panel conditions"><div class="panel-head"><h2>当次约束</h2><span>m / min</span></div><dl><dt>输入</dt><dd>{{run.result.balance.input}} 条</dd><dt>采信</dt><dd>{{run.result.balance.accepted}} 条</dd><dt>空行</dt><dd>{{run.result.balance.blank}} 条</dd><dt>排程冲突</dt><dd>{{run.result.conflicts|length}} 组</dd></dl><div class="isolated">{% for code,n in run.result.reasons.items() %}<p><code>{{code}}</code><b>{{n}}</b></p>{% else %}<p>无隔离记录</p>{% endfor %}</div></section><section class="panel evidence"><div class="panel-head"><h2>{{modules[active-1]}}证据</h2><span>{{report.rows|length}} 条</span></div><div class="scroll"><table class="ledger"><thead><tr>{% if report.rows %}{% for k in report.rows[0] %}<th>{{{'id':'记录号','kind':'类型','start':'开始UTC','end':'结束UTC','start_s':'开始UTC','end_s':'结束UTC','value':'原值','aux':'通航分钟','version':'版本','unit':'单位','line':'来源行','a':'起点UTC','b':'终点UTC','depth':'水深m','duration':'通航秒','version_value':'有效版本','threshold_m':'最低潮高m','status':'状态','check':'重叠检查','effective_version':'生效版本','superseded_versions':'被替换版','revision_delta':'版本增量'}.get(k,k)}}</th>{% endfor %}{% endif %}</tr></thead><tbody>{% for row in report.rows %}<tr>{% for k,v in row.items() %}<td class="{{'num' if k in ['a','b','depth','duration','line','start_s','end_s'] else ''}}" title="{{v}}">{{v|utc_instant if k in ['start_s','end_s','a','b'] else v}}</td>{% endfor %}</tr>{% else %}<tr><td>载入潮位与船舶计划。</td></tr>{% endfor %}</tbody></table></div></section><section class="panel controls"><div class="panel-head"><h2>变更批次</h2><span>CSV</span></div><form id="plan-form"><input type="file" id="source" accept=".csv" aria-label="计划文件"><textarea id="csv" rows="4" aria-label="计划内容" placeholder="粘贴潮位与申请"></textarea><div class="button-row"><button type="button" class="btn" id="restore">载入样例</button><button type="submit" class="btn solid">重排</button></div><output id="notice" role="status">{{run.created}}</output></form><div class="review-row"><button type="button" class="btn" data-decision="退回">退回计划</button><button type="button" class="btn" data-decision="通过">确认计划</button></div></section></div><script id="chart-data" type="application/json">{{{'tides':run.result.effective|selectattr('kind','equalto','tide')|list,'ships':run.result.final,'id':run.id,'revision':run.revision}|tojson}}</script>{% endblock %}
+{% extends 'base.html' %}{% block body %}
+{% set plans = run.result.plans or [] %}
+{% set steps = run.result.reports[4]['rows'] if plans else [] %}
+<div class="kpis">
+  <div class="kpi"><small>进港方案</small><b>{{plans|selectattr('status','equalto','SCHEDULED')|list|length}}</b><span>/ {{plans|length}} 艘</span></div>
+  <div class="kpi"><small>最小富余</small><b>{% set known = plans|rejectattr('min_surplus_m','none')|map(attribute='min_surplus_m')|list %}{{known|min|truncate(6,True,'') if known else '—'}}</b><span>m</span></div>
+  <div class="kpi"><small>航道段</small><b>{{run.result.legs|length if run.result.legs is defined else 0}}</b><span>段</span></div>
+  <div class="kpi"><small>隔离记录</small><b>{{run.result.quarantine|length}}</b><span>条</span></div>
+  <div class="kpi"><small>排程状态</small><b class="verdict">{{'待处理' if run.result.blocked else '可复核'}}</b></div>
+</div>
+{% if run.superseded %}<p class="banner">旧版方案，仅存档。{{'航道测深已更新，原有富余作废，请用最新批次。' if run.superseded_reason=='DEPTH_UPDATED' else '已有同批航次的新方案生效。'}}</p>{% endif %}
+<div class="grid">
+  <section class="panel timeline">
+    <div class="panel-head"><h2>进港时间轴</h2><span id="time-scale">UTC</span></div>
+    <div class="tide-graph" id="tide-graph"></div>
+    <div class="gantt">
+      {% for ship in run.result.final %}<div class="vessel"><strong>{{ship.id}}</strong><div class="track"><i data-start="{{ship.start_s}}" data-end="{{ship.end_s}}"></i></div><span>{{ship.start}}</span><em class="{{'ok' if ship.status=='SCHEDULED' else 'bad'}}">{{'已安排' if ship.status=='SCHEDULED' else '无安全窗'}}</em></div>{% endfor %}
+    </div>
+  </section>
+  <section class="panel conditions">
+    <div class="panel-head"><h2>当次约束</h2><span>m / min</span></div>
+    <dl><dt>输入</dt><dd>{{run.result.balance.input}} 条</dd><dt>采信</dt><dd>{{run.result.balance.accepted}} 条</dd><dt>空行</dt><dd>{{run.result.balance.blank}} 条</dd><dt>排程冲突</dt><dd>{{run.result.conflicts|length}} 组</dd></dl>
+    <div class="isolated">{% for code,n in run.result.reasons.items() %}<p><code>{{code}}</code><b>{{n}}</b></p>{% else %}<p>无隔离记录</p>{% endfor %}</div>
+  </section>
+  <section class="panel plan">
+    <div class="panel-head"><h2>分段方案与段速</h2><span>{{steps|length}} 段次</span></div>
+    <div class="scroll">
+      <table class="ledger">
+        <thead><tr><th>船舶</th><th>段</th><th>进段UTC</th><th>出段UTC</th><th>段速kn</th><th>限速kn</th><th>海图m</th><th>最低潮m</th><th>需求m</th><th>富余m</th></tr></thead>
+        <tbody>
+        {% for r in steps %}<tr><td>{{r.id}}</td><td>{{r.segment}}</td><td class="num">{{r.start_s|utc_instant}}</td><td class="num">{{r.end_s|utc_instant}}</td><td class="num">{{r.speed_kn}}</td><td class="num">{{r.limit_kn}}</td><td class="num">{{r.depth_m}}</td><td class="num">{{r.min_tide_m}}</td><td class="num">{{r.required_m}}</td><td class="num {{'bad' if r.surplus_m|float < 0 else 'ok'}}">{{r.surplus_m}}</td></tr>
+        {% else %}<tr><td colspan="10">{{'尚无可行分段方案。' if run.result.legs else '本批没有 leg 记录，按整程潮窗排程（旧口径）；加入航道段后可得到分段方案。'}}</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  <section class="panel alternatives">
+    <div class="panel-head"><h2>未采用方案</h2><span>留档核对</span></div>
+    <div class="scroll">
+      <table class="ledger">
+        <thead><tr><th>船舶</th><th>方案</th><th>起航UTC</th><th>段</th><th>富余m</th><th>说明</th></tr></thead>
+        <tbody>
+        {% for p in plans %}{% for a in p.alternatives %}<tr><td>{{p.id}}</td><td>{{a.code}}</td><td class="num">{{a.departure_s|utc_instant if a.departure_s is defined and a.departure_s is not none else "—"}}</td><td>{{a.segment if a.segment is defined and a.segment else '整程'}}</td><td class="num">{{a.min_surplus_m if a.min_surplus_m is not none else (a.surplus_m if a.surplus_m is not none else '—')}}</td><td class="note">{{a.note}}</td></tr>
+        {% endfor %}{% endfor %}
+        {% if not plans|selectattr('alternatives')|list %}<tr><td colspan="6">无未采用方案。</td></tr>{% endif %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  <section class="panel evidence">
+    <div class="panel-head"><h2>{{modules[active-1]}}证据</h2><span>{{report.rows|length}} 条</span></div>
+    <div class="scroll"><table class="ledger"><thead><tr>{% if report.rows %}{% for k in report.rows[0] %}<th>{{{'id':'记录号','kind':'类型','start':'开始UTC','end':'结束UTC','start_s':'开始UTC','end_s':'结束UTC','value':'原值','aux':'通航分钟','version':'版本','unit':'单位','line':'来源行','a':'起点UTC','b':'终点UTC','depth':'水深m','duration':'通航秒','version_value':'有效版本','threshold_m':'最低潮高m','status':'状态','check':'重叠检查','effective_version':'生效版本','superseded_versions':'被替换版','revision_delta':'版本增量','segment':'航段','order':'段序','speed_kn':'段速kn','limit_kn':'限速kn','length_m':'长度m','depth_m':'海图m','depth_version':'测深版本','squat_m':'下沉m','required_m':'需求m','min_tide_m':'最低潮m','available_m':'可用m','surplus_m':'富余m'}.get(k,k)}}</th>{% endfor %}{% endif %}</tr></thead><tbody>{% for row in report.rows %}<tr>{% for k,v in row.items() %}<td class="{{'num' if k in ['a','b','depth','duration','line','start_s','end_s','speed_kn','limit_kn','length_m','depth_m','squat_m','required_m','min_tide_m','available_m','surplus_m'] else ''}}" title="{{v}}">{{v|utc_instant if k in ['start_s','end_s','a','b'] else v}}</td>{% endfor %}</tr>{% else %}<tr><td>载入潮位与船舶计划。</td></tr>{% endfor %}</tbody></table></div>
+  </section>
+  <section class="panel controls">
+    <div class="panel-head"><h2>变更批次</h2><span>CSV</span></div>
+    <form id="plan-form"><input type="file" id="source" accept=".csv" aria-label="计划文件"><textarea id="csv" rows="4" aria-label="计划内容" placeholder="粘贴潮位、航道段与申请"></textarea><div class="button-row"><button type="button" class="btn" id="restore">载入样例</button><button type="submit" class="btn solid">重排</button></div><output id="notice" role="status">{{run.created}}</output></form>
+    <div class="review-row"><button type="button" class="btn" data-decision="退回">退回计划</button><button type="button" class="btn" data-decision="通过">确认计划</button></div>
+  </section>
+</div>
+<script id="chart-data" type="application/json">{{{'tides':run.result.effective|selectattr('kind','equalto','tide')|list,'ships':run.result.final,'id':run.id,'revision':run.revision}|tojson}}</script>
+{% endblock %}
